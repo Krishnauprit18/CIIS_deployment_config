@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ciis-api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app: ciis-api
+  template:
+    metadata:
+      labels:
+        app: ciis-api
+    spec:
+      serviceAccountName: ciis-app
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.registry }}/{{ .Values.api.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: ciis-config
+            - secretRef:
+                name: ciis-runtime-secrets
+                optional: false
+      containers:
+        - name: api
+          image: "{{ .Values.image.registry }}/{{ .Values.api.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CIIS_ROLE
+              value: api
+          envFrom:
+            - configMapRef:
+                name: ciis-config
+            - secretRef:
+                name: ciis-runtime-secrets
+                optional: false
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+{{ toYaml .Values.api.resources | indent 12 }}
